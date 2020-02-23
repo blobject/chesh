@@ -1,0 +1,108 @@
+* chesh
+
+A basic human-vs-human chess game for the Windows/Linux console.
+
+Written in C#, hence the name.
+
+** Try
+
+*** Run
+
+- =./Chesh.exe=
+
+With arguments:
+
+- =./Chesh.exe wide save/immortal.log .5=
+  - Starts a playback of the saved "immortal.log" game, in wide-mode, at the speed of 0.5 sec/move.
+
+*** Build requirements
+
+- Windows
+  - latest .NET Core
+    - make sure to set the target framework to the latest stable .NET Core; an error might result from the "netcoreapp5.0" specification in the csproj file (which is there for Linux builds).
+- Linux
+  - .NET Core 5.0 preview
+    - see: https://github.com/dotnet/runtime/issues/460#issuecomment-564514077
+    - see also: https://github.com/dotnet/core/issues/973
+
+*** Build & run
+
+- at root: =dotnet run --project src/Chesh.csproj=
+- in =src/=: =cd src; dotnet run=
+
+*** Run unit tests
+
+- at root: =dotnet test test/CheshTests.csproj=
+- in =test/=: =cd test; dotnet test=
+
+** How to use (play) Chesh
+
+- Chess game definition: https://en.wikipedia.org/wiki/Chess
+- Take turns:
+  - 2 Human players take turns playing.
+  - "White" goes first
+    - In ASCII-mode, White are the uppercase pieces, and Black are the lowercase.
+  - A player interacts with the program by pressing keys and typing in commands.
+    - =Escape=: Bring up the menu
+    - =<command> Enter=: Make a move
+- Make moves:
+  - Move piece, ex: =e2 f3= (whitespace ignored).
+  - Propose to draw: =draw= or =tie=.
+  - Resign: =forfeit=, =giveup=, or =resign=.
+- Menu:
+  - Navigate with =Up=, =Down=, =Enter=, and =Escape= keys.
+  - Here, user(s) can undo the move, exit from game, reset the game, and change styles.
+- End game:
+  - Quit: =exit=, =quit=, =stop=, or =C-d=.
+  - On checkmate, the game ends, and the user(s) can choose to save the game history.
+- Load game:
+  - Supply the executable with a filename argument to playback a saved game.
+  - Optionally supply an additional argument (in seconds) to specify the playback speed.
+  - The game file should consist of a list of moves, with the format =<piece><from_file><from_rank><to_file><to_rank><suffix>=.
+  - Lines starting with =#= are ignored. As far as list of moves go, a move should be a single word, but whitespace between the words are ignored.
+  - For example, =Pa7b8R*= means a pawn moved from =a7= and captured an enemy piece at =b8=, thereupon promoting to a rook and checking the enemy king.
+  - Annotation suffixes:
+    - =[RNBQ]=: promotion to rook, knight, bishop, or queen respectively
+    - =%=: castle
+    - =p=: en passant
+    - =:=: capture
+    - =+=: check
+    - =#=: checkmate
+    - =*=: capture and check
+    - =&=: capture and checkmate
+    - reasonable combinations are possible
+
+** The game screen
+
+[[screenshot.png]]
+
+Basically, two prompts for each player at the top and bottom, the history of moves at the left, and the board at the center right.
+
+- Trivia: The screenshot shows the "Opera Game", named for having taken place in an opera house in Paris in 1858. It is an exemplary game used by chess instructors to demonstrate important chess strategies.
+
+** Developmental notes
+
+*** Classes
+
+- Model.State :: carries the minimal amount of information needed to recreate the entire game.
+  - Plus an additional Board structure that represents all the =Piece= s, used as a convenience device to discern moves.
+  - Implements low-level mutators/accessors to this minimal data, ie. methods that perform the actual calculations.
+- Model.Game is a wrapper around =State= that implements high-level entry points to the latter and retains additional information needed for a more complete chess game experience.
+- Model.Piece :: represents an individual chess piece.
+  - It has a "sym" (piece type), a color (black or white), location information, and whether it has moved at least once.
+  - Each piece has the ability to determine its reach (its set of legal moves).
+- Controller.Control :: is an interface between the =Model= and =View=.
+  - All user-mutation of =State= happens through =Control=, via direct function calls against =Game=.
+  - All user-access of =State= happens through =Control= via the observer pattern. =Control= observes changes in =State= and propagates behavior to =View=.
+- View.Ui :: is responsible for representing the game on the console screen and is a wrapper for individual =Element= s.
+- View.Element :: is a specific rectangular portion of the text-based UI, such as the board, or the move history, or the game menu.
+
+*** MVC
+
+- *State* is the model.
+- *Control* is the controller.
+- *Ui* is the view.
+- *State* --> *Control*: via =.*Changed()=
+- *Control* --> (Game) --> *State*: via =Game.Move()=, etc.
+- *Control* --> *Ui*: via =.Change*()=
+- *Ui* --> *Control*: via =Control.Move()=, etc.
