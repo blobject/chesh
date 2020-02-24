@@ -47,7 +47,7 @@ namespace Chesh.Controller
         element.Value.SetCfg(cfg);
       }
       this.Ui.Erase();
-      this.Ui.Es["Menu"].Draw(cfg);
+      this.Ui.Es["Menu"].Draw(this.Ui, null);
     }
 
 
@@ -98,13 +98,12 @@ namespace Chesh.Controller
     }
 
 
-    // TODO: unused
     // Select: Call Game.Select.
 
-    public Ret
+    public void
     Select(int x, int y)
     {
-      return this.Game.Select(x, y);
+      this.Game.Select(x, y);
     }
 
 

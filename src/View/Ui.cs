@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -11,10 +12,297 @@ using Chesh.Util;
 namespace Chesh.View
 {
 
-  // Res: Enumeration of the elements that can display responses.
+  // InputHandler: Read and interpret user input in the Console.
 
-  public enum Res { Response, Prompt, Menu }
+  public class InputHandler
+  {
+    private UiState UiState;
 
+    public InputHandler(UiState uiState)
+    {
+      this.UiState = uiState;
+    }
+
+    public ConsoleKey
+    Read()
+    {
+      return Console.ReadKey(true).Key;
+    }
+
+
+    // Understand: React to user input.
+
+    public bool
+    Understand(ConsoleKey input)
+    {
+      switch (input)
+      {
+        case ConsoleKey.Escape:
+          Ui.Pin(0, Ui.Height + 1);
+          this.UiState.Running = false;
+          break;
+        case ConsoleKey.Enter:
+          this.UiState.SetSrcOrMove(this.UiState.X, this.UiState.Y);
+          break;
+        case ConsoleKey.UpArrow:
+          this.UiState.SetSelection(this.UiState.X, this.UiState.Y + 1);
+          break;
+        case ConsoleKey.RightArrow:
+          this.UiState.SetSelection(this.UiState.X + 1, this.UiState.Y);
+          break;
+        case ConsoleKey.DownArrow:
+          this.UiState.SetSelection(this.UiState.X, this.UiState.Y - 1);
+          break;
+        case ConsoleKey.LeftArrow:
+          this.UiState.SetSelection(this.UiState.X - 1, this.UiState.Y);
+          break;
+/**
+        if (k == ConsoleKey.Escape)
+        {
+          Option opt = this.Menu();
+          if (opt == Option.Quit)
+          {
+            return "stopnow";
+          }
+          if (opt == Option.Undo)
+          {
+            return "undo";
+          }
+        }
+        if ((cki.Modifiers & ConsoleModifiers.Control) != 0 &&
+            (k == ConsoleKey.D))
+        {
+          this.Say(Res.Prompt, "quit", true);
+          return "quit";
+        }
+        if ((cki.Modifiers & ConsoleModifiers.Control) != 0
+            || (cki.Modifiers & ConsoleModifiers.Alt) != 0)
+        {
+          continue;
+        }
+//*/
+      }
+      return true;
+    }
+  }
+
+
+  // UiState: Handle Ui running and piece selection.
+
+  public class UiState
+  {
+    private Ui Ui;
+    public bool Running;
+    public int X;
+    public int Y;
+    public int XSrc;
+    public int YSrc;
+    public bool Chosen;
+
+    public UiState(Ui ui)
+    {
+      this.Ui = ui;
+      this.Running = true;
+      this.Chosen = false;
+    }
+
+
+    // InReach: Determine whether a square is within the selected piece's reach.
+
+    public bool
+    InReach(int x, int y)
+    {
+      foreach (JsonElement swap in
+               Helper.JsonToStateList(this.Ui.State, "Reach"))
+      {
+        if (x == swap[0].GetInt32() && y == swap[1].GetInt32())
+        {
+          return true;
+        }
+      }
+      return false;
+    }
+
+
+    // SetSelection: Select the piece, if any, on a square.
+
+    public void
+    SetSelection(int x, int y)
+    {
+      if (x < 1 || x > 8 || y < 1 || y > 8)
+      {
+        return;
+      }
+      this.X = x;
+      this.Y = y;
+      if (! this.Chosen)
+      {
+        this.Ui.Control.Select(x, y);
+      }
+      this.Ui.PinSquare(x, y);
+    }
+
+
+    // SetSrcOrMove: Set the piece about to move or make the move.
+
+    public void
+    SetSrcOrMove(int x, int y)
+    {
+      if (! this.Chosen)
+      {
+        if (this.Ui.At(x, y) != null)
+        {
+          // tried to choose enemy
+          if (Helper.JsonIsNull(this.Ui.State, "Selection"))
+          {
+            this.Ui.Say("It is " + this.Ui.Turn(true) + "'s turn.");
+            return;
+          }
+          // tried to choose immobile piece
+          if (Helper.JsonToStateList(this.Ui.State, "Reach").Count() == 0)
+          {
+            this.Ui.Say(this.Ui.NameAt(x, y) + " is immobile.");
+            return;
+          }
+          // chose well
+          this.XSrc = x;
+          this.YSrc = y;
+          this.Chosen = true;
+          this.Ui.Es["Reach"].Draw(this.Ui, null);
+          this.Ui.PinSquare(x, y);
+        }
+        return;
+      }
+      this.Chosen = false;
+      if (this.InReach(x, y))
+      {
+        // moved well
+        var rets = this.Ui.Control.Move(this.XSrc, this.YSrc, x, y);
+        this.SetSelection(x, y);
+        this.MoveSay(rets, this.XSrc, this.YSrc, x, y);
+        this.XSrc = 0;
+        this.YSrc = 0;
+        return;
+      }
+      // moved to empty square, so cancel chosen
+      if (this.Ui.At(x, y) == null)
+      {
+        this.XSrc = 0;
+        this.YSrc = 0;
+        this.SetSelection(x, y);
+        return;
+      }
+      // moved to same square, so cancel chosen
+      if (x == this.XSrc && y == this.YSrc)
+      {
+        this.XSrc = 0;
+        this.YSrc = 0;
+        this.SetSelection(x, y);
+      }
+      // chose another piece, so recurse
+      else
+      {
+        this.SetSelection(x, y);
+        this.SetSrcOrMove(x, y);
+      }
+    }
+
+
+    // MoveSay: Respond to a move.
+
+    public void
+    MoveSay(List<Ret> rets, int xSrc, int ySrc, int xDst, int yDst)
+    {
+      string prefix = this.Ui.Turn(false) + " " +
+        this.Ui.NameAt(xDst, yDst) + " " +
+        Helper.IntsToSquare(xSrc, ySrc) + " -> " +
+        Helper.IntsToSquare(xDst, yDst);
+
+      if (rets.Count == 0)
+      {
+        this.Ui.Say(prefix + ".");
+        return;
+      }
+
+      if (rets.Contains(Ret.Checked))
+      {
+        this.Ui.Say("Cannot move there, King is checked.");
+        return;
+      }
+
+      JsonElement died = Helper.LastDead(this.Ui.State);
+
+      if (rets.Contains(Ret.Capture))
+      {
+        string message = prefix + " capturing " +
+          Helper.SymToName(died[0].GetString());
+        if (rets.Contains(Ret.Check))
+        {
+          this.Ui.Say(message + " and CHECK!");
+          return;
+        }
+        if (rets.Contains(Ret.Checkmate))
+        {
+          this.Ui.Say(message + " and CHECKMATE! " + this.Ui.Turn(false) +
+                      " wins!");
+          //this.Stop("Save before quitting?");
+          //Pin(0, Height + 2);
+          return;
+        }
+        this.Ui.Say(message + ".");
+        return;
+      }
+
+      if (rets.Contains(Ret.Castle))
+      {
+        string message = this.Ui.Turn(false) + " castling ";
+        if (xDst < 0)
+        {
+          message += "queenside";
+        }
+        else
+        {
+          message += "kingside";
+        }
+        if (rets.Contains(Ret.Check))
+        {
+          this.Ui.Say(message + " and CHECK!");
+          return;
+        }
+        if (rets.Contains(Ret.Checkmate))
+        {
+          this.Ui.Say(message + " and CHECKMATE! " + this.Ui.Turn(false) +
+                      " wins!");
+          //this.Stop("Save before quitting?");
+          //Pin(0, Height + 2);
+          return;
+        }
+        this.Ui.Say(message + ".");
+        return;
+      }
+
+      if (rets.Contains(Ret.Check))
+      {
+        this.Ui.Say(prefix + ". CHECK!");
+        return;
+      }
+
+      if (rets.Contains(Ret.Checkmate))
+      {
+        this.Ui.Say(prefix + ". CHECKMATE! " + this.Ui.Turn(false) + " wins!");
+        //this.Stop("Save before quitting?");
+        //Pin(0, Height + 2);
+        return;
+      }
+/**
+      if (rets.Contains(Ret.InvalidMove))
+      {
+        this.Say($"(Error) {prefix} Illegal move");
+        return rets;
+      }
+//*/
+    }
+  }
 
   // Ui: The Console-based game view.
 
@@ -28,114 +316,41 @@ namespace Chesh.View
     public string State;
     public string Cfg;
     private Game Game;
-    private Control Control;
-    private bool Running;
+    public Control Control;
+    public UiState UiState;
+    private InputHandler InputHandler;
 
     public Ui(Game game)
     {
-      HostWidth = Console.WindowWidth;
-      HostHeight = Console.WindowHeight;
-      Width = 26;
-      Height = 19;
       this.Game = game;
       this.State = Helper.ToJson(game.State);
       this.Cfg = Helper.ToJson(game.Cfg);
-      this.Es = new Dictionary<string,Element>();
-      string style = Helper.JsonToCfgValue(this.Cfg, "style");
+      string style = Helper.JsonToValue(this.Cfg, "style");
+      Width = 26;
+      Height = 19;
       if (style == "wide")
       {
-        Width = 58;
-        Height = 29;
+        Width = 64;
+        Height = 25;
       }
+      HostWidth = Console.WindowWidth;
+      HostHeight = Console.WindowHeight;
+      this.Es = new Dictionary<string,Element>();
       this.Es["Menu"] = new Menu(style);
-      this.Es["BlackResponse"] = new BlackResponseElement(style);
-      this.Es["BlackPrompt"] = new BlackPromptElement(style);
-      this.Es["History"] = new HistoryElement(style);
+      this.Es["WhiteHistory"] = new WhiteHistoryElement(style);
+      this.Es["BlackHistory"] = new BlackHistoryElement(style);
       this.Es["WhiteDead"] = new WhiteDeadElement(style);
+      this.Es["BlackDead"] = new BlackDeadElement(style);
       this.Es["Frame"] = new BoardFrameElement(style);
       this.Es["Pieces"] = new PiecesElement(style);
-      this.Es["BlackDead"] = new BlackDeadElement(style);
-      this.Es["WhiteResponse"] = new WhiteResponseElement(style);
-      this.Es["WhitePrompt"] = new WhitePromptElement(style);
-      this.Running = true;
+      this.Es["Reach"] = new ReachElement(style);
+      this.Es["Response"] = new ResponseElement(style);
+      this.UiState = new UiState(this);
+      this.InputHandler = new InputHandler(this.UiState);
     }
 
 
-    // accessors ///////////////////////////////////////////////////////////////
-
-    // GoodDimensions: Check the display size.
-
-    public bool
-    GoodDimensions(string style)
-    {
-      switch (style)
-      {
-        case "compact":
-          if (HostWidth < 26 || HostHeight < 19)
-          {
-            return false;
-          }
-          break;
-        case "wide":
-          if (HostWidth < 58 || HostHeight < 29)
-          {
-            return false;
-          }
-          break;
-      }
-      return true;
-    }
-
-
-    // Turn: Get the current turn, returning the color as string.
-    //       Based only on the parity of the number of entries in the history.
-
-    public string
-    Turn(bool current)
-    {
-      int count = 0;
-      foreach (var note in
-               Helper.JsonToStateListValue(this.State, "History"))
-      {
-        count++;
-      }
-      if (count % 2 == 0)
-      {
-        if (current)
-        {
-          return "White";
-        }
-        return "Black";
-      }
-      if (current)
-      {
-        return "Black";
-      }
-      return "White";
-    }
-
-
-    // At: Get the name of the piece at a square.
-
-    public string
-    At(char file, char rank)
-    {
-      // could simply access this.State.Board as well
-      foreach (JsonElement piece in
-               Helper.JsonToStateListValue(this.State, "Live"))
-      {
-        if (piece[2].GetInt32() == Helper.ToFileNum(file) &&
-            piece[3].GetInt32() == Helper.ToRankNum(rank))
-        {
-          var sym = piece[0].GetString();
-          return Helper.SymToName(sym);
-        }
-      }
-      return null;
-    }
-
-
-    // mutators ////////////////////////////////////////////////////////////////
+    // Mutators ////////////////////////////////////////////////////////////////
 
     // SetControl: Connect to the controller.
 
@@ -161,21 +376,106 @@ namespace Chesh.View
     SetCfg(string cfg)
     {
       this.Cfg = cfg;
-      switch (Helper.JsonToCfgValue(cfg, "style"))
+      switch (Helper.JsonToValue(cfg, "style"))
       {
         case "compact":
           Width = 26;
           Height = 19;
           break;
         case "wide":
-          Width = 58;
-          Height = 29;
+          Width = 64;
+          Height = 25;
           break;
       }
     }
 
 
-    // Console helpers /////////////////////////////////////////////////////////
+    // Accessors ///////////////////////////////////////////////////////////////
+
+    // At: Get the sym of the piece at a square.
+
+    public string
+    At(int file, int rank)
+    {
+      // could simply access State.Board as well
+      foreach (JsonElement piece in
+               Helper.JsonToStateList(this.State, "Live"))
+      {
+        if (piece[2].GetInt32() == file && piece[3].GetInt32() == rank)
+        {
+          return piece[0].GetString();
+        }
+      }
+      return null;
+    }
+
+
+    // NameAt: Get the name of the piece at a square.
+
+    public string
+    NameAt(int file, int rank)
+    {
+      string sym = this.At(file, rank);
+      if (sym == null)
+      {
+        return null;
+      }
+      return Helper.SymToName(sym);
+    }
+
+
+    // GoodDimensions: Check the display size.
+
+    public bool
+    GoodDimensions()
+    {
+      bool good = true;
+      string style = Helper.JsonToValue(this.Cfg, "style");
+      if (style == "compact" && (HostWidth < 26 || HostHeight < 19))
+      {
+        good = false;
+      }
+      else if (style == "wide" && (HostWidth < 64 || HostHeight < 25))
+      {
+        good = false;
+      }
+      if (! good)
+      {
+        Write(style[0].ToString().ToUpper() + style.Substring(1) +
+              $" style needs at least {Width} x {Height}");
+      }
+      return good;
+    }
+
+
+    // Turn: Get the current turn, returning the color as string.
+    //       Based only on the parity of the number of entries in the history.
+
+    public string
+    Turn(bool current)
+    {
+      int count = 0;
+      foreach (var note in Helper.JsonToStateList(this.State, "History"))
+      {
+        count++;
+      }
+      if (count % 2 == 0)
+      {
+        if (current)
+        {
+          return "White";
+        }
+        return "Black";
+      }
+      if (current)
+      {
+        return "Black";
+      }
+      return "White";
+    }
+
+
+    // Drawing helpers /////////////////////////////////////////////////////////
 
     // Write: Wrapper around Console.Write.
 
@@ -196,73 +496,67 @@ namespace Chesh.View
     }
 
 
+    // PinSquare: Set cursor position to the square on the board.
+
+    public void
+    PinSquare(int x, int y)
+    {
+      var pieces = this.Es["Pieces"];
+      Pin(pieces.X + 4 * x - 5, pieces.Y + 17 - 2 * y);
+    }
+
+
     // Erase: Erase the entire display.
 
     public void
     Erase()
     {
-      Console.Clear();
-      Ui.Pin(0, 0);
+      Pin(0, 0);
+      for (int row = 0; row < HostHeight; row++)
+      {
+        Pin(0, row);
+        Write(new string(' ', HostWidth));
+      }
+      Pin(0, 0);
     }
 
 
-    // User interaction helpers ////////////////////////////////////////////////
-
-    // Say: Display a message somewhere, as a response to some interaction.
+    // Draw: Display all the elements (except the menu).
 
     public void
-    Say(Res res, string message, bool current)
+    Draw()
     {
-      var responder = this.Es[this.Turn(current) + "Response"];
-      if (res == Res.Prompt)
+      foreach (var element in this.Es)
       {
-        responder = this.Es[this.Turn(current) + "Prompt"];
+        if (! (element.Key == "Response" || element.Key == "Menu"))
+        {
+          element.Value.Draw(this, null);
+        }
       }
-      else if (res == Res.Menu)
-      {
-        responder = new MenuResponseElement(null);
-      }
-      responder.Erase();
-      responder.Draw(message);
+      //this.Say(null);
     }
 
 
-    // AskPromote: Allow the user to pick a piece to promote to.
+    // Interaction helpers /////////////////////////////////////////////////////
 
-    public char
-    AskPromote(string prefix)
+    // Say: Display a response to some interaction.
+
+    public void
+    Say(string message)
     {
-      this.Say(Res.Response, $"{prefix} Promote to? (RNBQ) ", true);
-      ConsoleKey k;
-      while (true)
-      {
-        k = Console.ReadKey(true).Key;
-        if (k == ConsoleKey.R)
-        {
-          return 'R';
-        }
-        if (k == ConsoleKey.N)
-        {
-          return 'N';
-        }
-        if (k == ConsoleKey.B)
-        {
-          return 'B';
-        }
-        if (k == ConsoleKey.Q)
-        {
-          return 'Q';
-        }
-      }
+      var responder = this.Es["Response"];
+      responder.Erase();
+      responder.Draw(null, message);
+      this.PinSquare(this.UiState.X, this.UiState.Y);
     }
 
 
     // Ask: Ask user for a yes/no confirmation.
 
     public bool
-    Ask(Res res, string message, bool current, bool enterIsYes)
+    Ask(string message, bool enterIsYes)
     {
-      this.Say(res, message + " ", current);
+      this.Say(message + " ");
       ConsoleKey k;
       while (true)
       {
@@ -285,176 +579,27 @@ namespace Chesh.View
 
     // Gameplay ////////////////////////////////////////////////////////////////
 
-    // Read: Detect or relay user input.
-
-    public string
-    Read()
-    {
-      string input = string.Empty;
-      while (true)
-      {
-        ConsoleKeyInfo cki = Console.ReadKey(true);
-        ConsoleKey k = cki.Key;
-        char c = cki.KeyChar;
-        if (k == ConsoleKey.Escape)
-        {
-          Option opt = this.Menu();
-          if (opt == Option.Quit)
-          {
-            return "stopnow";
-          }
-          if (opt == Option.Undo)
-          {
-            return "undo";
-          }
-        }
-        if (k == ConsoleKey.Enter)
-        {
-          break;
-        }
-        if (k == ConsoleKey.Backspace)
-        {
-          if (input != string.Empty)
-          {
-            input = input.Substring(0, input.Length - 1);
-            Write("\b \b");
-          }
-          continue;
-        }
-        if ((cki.Modifiers & ConsoleModifiers.Control) != 0 &&
-            (k == ConsoleKey.D))
-        {
-          this.Say(Res.Prompt, "quit", true);
-          return "quit";
-        }
-        if ((cki.Modifiers & ConsoleModifiers.Control) != 0
-            || (cki.Modifiers & ConsoleModifiers.Alt) != 0)
-        {
-          continue;
-        }
-        if (input.Length < this.Es[this.Turn(true) + "Prompt"].Width)
-        {
-          Write(c.ToString());
-          input += c;
-        }
-      }
-      return input.Trim().ToLower();
-    }
-
-
-    // Understand: Interpret the user input into a move.
-
-    public void
-    Understand(string input)
-    {
-      input = Regex.Replace(input, @"\s+", string.Empty).ToLower();
-      if (input.Length != 4)
-      {
-        this.Say(Res.Response, input + " ?", true);
-        this.Say(Res.Prompt, null, true);
-        return;
-      }
-
-      string src = $"{input[0]}{input[1]}";
-      string dst = $"{input[2]}{input[3]}";
-      if (! Helper.ValidSquare(input[0], input[1]))
-      {
-        this.Say(Res.Response, "Unrecognised square: " + src, true);
-        this.Say(Res.Prompt, null, true);
-        return;
-      }
-      if (! Helper.ValidSquare(input[2], input[3]))
-      {
-        this.Say(Res.Response, "Unrecognised square: " + dst, true);
-        this.Say(Res.Prompt, null, true);
-        return;
-      }
-      string name = this.At(input[0], input[1]);
-      if (name != null)
-      {
-        name += " ";
-      }
-      string move = $"{name}{src}->{dst}";
-      if (! Ask(Res.Response, $"{move}? (y/n)", true, true))
-      {
-        this.Say(Res.Response, null, true);
-        this.Say(Res.Prompt, null, true);
-        return;
-      }
-      (int,int,int,int) srcdst = Helper.MoveToInts(input);
-      this.Move(srcdst.Item1, srcdst.Item2,
-                srcdst.Item3, srcdst.Item4,
-                src, dst, false);
-    }
-
-
     // Play: The main loop of the interactive view.
 
     public void
     Play(List<string> load, float speed)
     {
-      string style = Helper.JsonToCfgValue(this.Cfg, "style");
-      if (! this.GoodDimensions(style))
+      if (! this.GoodDimensions())
       {
-        switch (style)
-        {
-          case "compact":
-            Console.WriteLine("Compact style needs at least 26 x 19");
-            break;
-          case "wide":
-            Console.WriteLine("Wide style needs at least 58 x 29");
-            break;
-        }
         return;
       }
+
       this.Erase();
-      this.Draw();
+      this.UiState.SetSelection(5, 1); // the white king
 
       if (this.Playback(load, speed))
       {
         return;
       }
 
-      string input;
-      while (Running)
+      while (this.UiState.Running)
       {
-        input = Read();
-        switch (input)
-        {
-          case "":
-            this.Say(Res.Prompt, null, true);
-            continue;
-          case "exit":
-          case "quit":
-          case "stop":
-            this.Stop(Res.Response, "Save?", true);
-            Pin(0, Height + 2);
-            return;
-          case "stopnow":
-            Pin(0, Height + 2);
-            return;
-          case "undo":
-            break;
-          case "draw":
-          case "tie":
-            if (this.Tie())
-            {
-              return;
-            }
-            break;
-          case "forfeit":
-          case "giveup":
-          case "resign":
-            this.Say(Res.Response,
-                     $"{this.Turn(true)} resigned. {this.Turn(false)} wins!",
-                     false);
-            this.Stop(Res.Prompt, "Save before quitting?", false);
-            Pin(0, Height + 2);
-            return;
-          default:
-            this.Understand(input);
-            break;
-        }
+        this.InputHandler.Understand(this.InputHandler.Read());
       }
     }
 
@@ -472,26 +617,21 @@ namespace Chesh.View
         string message = $"{note}: Move {count} is invalid!";
         if (note != "bye" && (note.Length < 5 || note.Length > 7))
         {
-          this.Say(Res.Response, message, true);
-          this.Say(Res.Prompt, null, true);
+          this.Say(message);
           return false;
         }
         string move = Helper.Denotate(note);
         // TODO: implement tie in playback
         if (move == "bye")
         {
-          this.Say(Res.Response,
-                   $"{this.Turn(true)} resigned. {this.Turn(false)} wins!",
-                   true);
-          this.Stop(Res.Prompt, "Save before quitting?", true);
+          this.Say($"{this.Turn(true)} resigned. {this.Turn(false)} wins!");
+          this.Stop("Save before quitting?");
           Pin(0, Height + 2);
           return true;
         }
-        (int,int,int,int) srcdst = Helper.MoveToInts(move);
-        var rets = this.Move(srcdst.Item1, srcdst.Item2,
-                             srcdst.Item3, srcdst.Item4,
-                             $"{move[0]}{move[1]}", $"{move[2]}{move[3]}",
-                             true);
+        Swap srcdst = Helper.MoveToSwap(move);
+        var rets = this.Control.Move(srcdst.X, srcdst.Y,
+                                     srcdst.XMore, srcdst.YMore);
         foreach (var ret in rets)
         {
           if (! (new List<Ret>() {
@@ -502,8 +642,7 @@ namespace Chesh.View
                 Ret.Checkmate
              }).Contains(ret))
           {
-            this.Say(Res.Response, message, true);
-            this.Say(Res.Prompt, null, true);
+            this.Say(message);
             return false;
           }
         }
@@ -512,8 +651,8 @@ namespace Chesh.View
           char prom = Regex.Replace(note.Substring(5), @"[*&#+:p%]",
                                     string.Empty)[0];
           this.Control.Promote(rets, prom,
-                               srcdst.Item1, srcdst.Item2,
-                               srcdst.Item3, srcdst.Item4);
+                               srcdst.X, srcdst.Y,
+                               srcdst.XMore, srcdst.YMore);
         }
         if (rets.Contains(Ret.Checkmate))
         {
@@ -530,12 +669,13 @@ namespace Chesh.View
 
     // Menu: Display and interact with the menu.
 
+/**
     public Option
     Menu()
     {
       var menu = this.Es["Menu"];
       this.Erase();
-      menu.Draw(this.Cfg);
+      //menu.Draw(this, null);
 
       while (true)
       {
@@ -563,19 +703,19 @@ namespace Chesh.View
           Option opt = menu.Enter();
           if (opt == Option.Style)
           {
-            string style = Helper.JsonToCfgValue(this.Cfg, "style");
+            string style = Helper.JsonToValue(this.Cfg, "style");
             if (! this.GoodDimensions(style))
             {
               switch (style)
               {
                 case "compact":
-                  this.Say(Res.Menu, "Compact style needs at least 58 x 29", true);
+                  this.Say(Res.Menu, "Compact style needs at least 64 x 29", true);
                   break;
                 case "wide":
                   this.Say(Res.Menu, "Wide style needs at least 26 x 19", true);
                   break;
               }
-              menu.Draw(this.Cfg);
+              //menu.Draw(this, null);
               continue;
             }
             switch (style)
@@ -632,45 +772,26 @@ namespace Chesh.View
       }
       return Option.None;
     }
+//*/
+
+    // Game actions ////////////////////////////////////////////////////////////
 
 
     // Stop: Stop the game.
 
     public void
-    Stop(Res res, string message, bool current)
+    Stop(string message)
     {
-      if (Ask(res, message + " (y/n)", current, false))
+      if (Ask(message + " (y/n)", false))
       {
         if (File.Exists("chesh.log") &&
-            Ask(res, "chesh.log already exists. Sure? (y/n)",
-                current, false))
+            Ask("chesh.log already exists. Sure? (y/n)", false))
         {
-          this.Running = false;
+          this.UiState.Running = false;
           this.Control.Save();
-          this.Say(Res.Response, "Game log saved: chesh.log", current);
+          this.Say("Game log saved: chesh.log");
         }
       }
-    }
-
-
-    // Draw: Display all the elements (except the menu).
-
-    public void
-    Draw()
-    {
-      foreach (KeyValuePair<string,Element> element in this.Es)
-      {
-        if (! element.Key.EndsWith("Response") &&
-            ! element.Key.EndsWith("Prompt") &&
-            element.Key != "Menu")
-        {
-          element.Value.Draw(this.State);
-        }
-      }
-      this.Say(Res.Response, null, false);
-      this.Say(Res.Prompt, null, false);
-      this.Say(Res.Response, null, true);
-      this.Say(Res.Prompt, null, true);
     }
 
 
@@ -691,22 +812,18 @@ namespace Chesh.View
       Ret ret = this.Control.Tie(this.Turn(true));
       if (ret == Ret.Tie)
       {
-        this.Say(Res.Response, "Tied.", false);
-        this.Stop(Res.Prompt, "Save before quitting?", false);
+        this.Stop("Tied. Save before quitting?");
         Pin(0, Height + 2);
         return true;
       }
       if (ret == Ret.Tying)
       {
-        this.Say(Res.Response,
-                 $"{this.Turn(false)} proposed a tie", true);
-        if (this.Ask(Res.Prompt, "Accept?", true, false))
+        if (this.Ask($"{this.Turn(false)} proposed a tie. Accept?", false))
         {
           return this.Tie();
         }
         this.Control.Untie();
-        this.Say(Res.Response, "Tie declined", true);
-        this.Say(Res.Prompt, null, true);
+        this.Say("Tie declined");
       }
       return false;
     }
@@ -718,75 +835,6 @@ namespace Chesh.View
     Undo()
     {
       return this.Control.Undo();
-    }
-
-
-    // Move: Make a move.
-
-    public List<Ret>
-    Move(int xSrc, int ySrc, int xDst, int yDst,
-         string src, string dst, bool playback)
-    {
-      string prefix = src + "->" + dst + ":";
-      List<Ret> rets = this.Control.Move(xSrc, ySrc, xDst, yDst);
-      if (rets.Contains(Ret.BadSrc))
-      {
-        this.Say(Res.Response, $"{prefix} No piece on " + src, true);
-        this.Say(Res.Prompt, null, true);
-        return rets;
-      }
-      if (rets.Contains(Ret.BadTurn))
-      {
-        this.Say(Res.Response, $"{prefix} Other player's turn", true);
-        this.Say(Res.Prompt, null, true);
-        return rets;
-      }
-      if (rets.Contains(Ret.BadDst))
-      {
-        this.Say(Res.Response, $"{prefix} A friendly on " + dst, true);
-        this.Say(Res.Prompt, null, true);
-        return rets;
-      }
-      if (rets.Contains(Ret.BadCastle))
-      {
-        this.Say(Res.Response, $"{prefix} Cannot castle", true);
-        this.Say(Res.Prompt, null, true);
-        return rets;
-      }
-      if (rets.Contains(Ret.InvalidMove))
-      {
-        this.Say(Res.Response, $"{prefix} Illegal move", true);
-        this.Say(Res.Prompt, null, true);
-        return rets;
-      }
-      if (rets.Contains(Ret.Checked))
-      {
-        this.Say(Res.Response, $"{prefix} King will be checked", true);
-        this.Say(Res.Prompt, null, true);
-        return rets;
-      }
-      if (rets.Contains(Ret.Checkmate))
-      {
-        this.Say(Res.Response, $"Checkmate. {this.Turn(false)} wins!", false);
-        this.Stop(Res.Prompt, "Save before quitting?", false);
-        Pin(0, Height + 2);
-        return rets;
-      }
-      if (rets.Contains(Ret.Promote) && ! playback)
-      {
-        this.Control.Promote(rets, AskPromote(prefix),
-                             xSrc, ySrc, xDst, yDst);
-      }
-      // Ret.Regular
-      // Ret.Capture
-      // Ret.Castle
-      // Ret.Promote
-      // Ret.EnPassant
-      // Ret.Check
-      this.Say(Res.Response, null, false);
-      this.Say(Res.Response, null, true);
-      this.Say(Res.Prompt, null, true);
-      return rets;
     }
   }
 }

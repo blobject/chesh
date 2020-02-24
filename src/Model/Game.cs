@@ -49,7 +49,7 @@ namespace Chesh.Model
       }
       set
       {
-        StateChanged(value);
+        this.StateChanged(value);
         _state = value;
       }
     }
@@ -62,7 +62,7 @@ namespace Chesh.Model
       }
       set
       {
-        CfgChanged(value);
+        this.CfgChanged(value);
         _cfg = value;
       }
     }
@@ -189,13 +189,13 @@ namespace Chesh.Model
     }
 
 
-    // TODO: unused by current View
     // Select: Call State.Select.
 
-    public Ret
+    public void
     Select(int x, int y)
     {
-      return this.State.Select(x, y);
+      this.State.Select(x, y);
+      this.State = this.State; // trigger the observer
     }
 
 

@@ -25,6 +25,7 @@ namespace Chesh
       Ui ui = new Ui(game);
       Control ctrl = new Control(game, ui);
       game.Attach(ctrl);
+      //game.StateChanged(game.State);
       ui.SetControl(ctrl);
       ui.Play(load, speed);
     }

@@ -13,6 +13,16 @@ namespace Chesh.Util
   public class Helper
   {
 
+    // JsonIsNull: Check whether a json object is null.
+
+    public static bool
+    JsonIsNull(string json, string key)
+    {
+      return ((JsonElement) FromJson(json)).GetProperty(key).ValueKind
+        == JsonValueKind.Null;
+    }
+
+
     // FromJson: Convert a json object to string.
 
     public static object
@@ -22,22 +32,43 @@ namespace Chesh.Util
     }
 
 
-    // JsonToCfgValue: Get a key's value from a json object.
+    // JsonToValue: Get a key's value from a json object.
 
     public static string
-    JsonToCfgValue(string cfg, string key)
+    JsonToValue(string json, string key)
     {
-      return ((JsonElement) FromJson(cfg)).GetProperty(key).GetString();
+      return ((JsonElement) FromJson(json)).GetProperty(key).GetString();
     }
 
 
-    // JsonToStateListValue: Get a list value from a json object.
+    // JsonToSelection: Get State.Selection from a json object.
+
+    public static JsonElement
+    JsonToSelection(string state)
+    {
+      return ((JsonElement) FromJson(state)).GetProperty("Selection");
+    }
+
+    // JsonToStateList: Get a list value from a json object.
 
     public static IEnumerable<JsonElement>
-    JsonToStateListValue(string state, string key)
+    JsonToStateList(string state, string key)
     {
-      return ((JsonElement) Helper.FromJson(state))
-        .GetProperty(key).EnumerateArray();
+      return ((JsonElement) FromJson(state)).GetProperty(key).EnumerateArray();
+    }
+
+
+    // LastDead: Get the last dead piece from a json object.
+
+    public static JsonElement
+    LastDead(string state)
+    {
+      JsonElement piece = new JsonElement();
+      foreach (var dead in JsonToStateList(state, "Dead"))
+      {
+        piece = dead;
+      }
+      return piece;
     }
 
 
@@ -47,9 +78,9 @@ namespace Chesh.Util
     ToJson(object o)
     {
       var options = new JsonSerializerOptions();
-      options.Converters.Add(new CfgConverter());
       options.Converters.Add(new HistoryConverter());
       options.Converters.Add(new PieceConverter());
+      options.Converters.Add(new SwapConverter());
       return JsonSerializer.Serialize(o, options);
     }
 
@@ -81,6 +112,15 @@ namespace Chesh.Util
     }
 
 
+    // ToRankChar: Get the numeric character of a rank.
+
+    public static char
+    ToRankChar(int rank)
+    {
+      return (char) (rank + '1' - 1);
+    }
+
+
     // SymToName: Translate piece sym to its name.
 
     public static string
@@ -103,13 +143,22 @@ namespace Chesh.Util
     }
 
 
-    // MoveToInts: Convert a move notation to numbers.
+    // IntsToSquare: Convert numeric coordinates to its square string.
 
-    public static (int,int,int,int)
-    MoveToInts(string move)
+    public static string
+    IntsToSquare(int x, int y)
     {
-      return (ToFileNum(move[0]), ToRankNum(move[1]),
-              ToFileNum(move[2]), ToRankNum(move[3]));
+      return $"{ToFileChar(x)}{ToRankChar(y)}";
+    }
+
+
+    // MoveToSwap: Convert a move notation to a quadruple of numbers.
+
+    public static Swap
+    MoveToSwap(string move)
+    {
+      return new Swap(ToFileNum(move[0]), ToRankNum(move[1]),
+                      ToFileNum(move[2]), ToRankNum(move[3]));
     }
 
 
@@ -321,6 +370,32 @@ namespace Chesh.Util
   }
 
 
+  // HistoryConverter: Know how to convert the History object into json.
+
+  public class HistoryConverter : JsonConverter<(string,long)>
+  {
+    public override (string,long)
+    Read(ref Utf8JsonReader reader,
+         Type typeToConvert,
+         JsonSerializerOptions options)
+    {
+      // stub
+      return (null, 0);
+    }
+
+    public override void
+    Write(Utf8JsonWriter writer,
+          (string,long) note,
+          JsonSerializerOptions options)
+    {
+      writer.WriteStartArray();
+      writer.WriteStringValue(note.Item1);
+      writer.WriteNumberValue(note.Item2);
+      writer.WriteEndArray();
+    }
+  }
+
+
   // PieceConverter: Know how to convert a Piece object into json.
 
   public class PieceConverter : JsonConverter<Piece>
@@ -355,53 +430,29 @@ namespace Chesh.Util
   }
 
 
-  // HistoryConverter: Know how to convert the History object into json.
+  // SwapConverter: Know how to convert the Swap object into json.
 
-  public class HistoryConverter : JsonConverter<(string,long)>
+  public class SwapConverter : JsonConverter<Swap>
   {
-    public override (string,long)
+    public override Swap
     Read(ref Utf8JsonReader reader,
          Type typeToConvert,
          JsonSerializerOptions options)
     {
       // stub
-      return (null, 0);
+      return null;
     }
 
     public override void
     Write(Utf8JsonWriter writer,
-          (string,long) note,
+          Swap swap,
           JsonSerializerOptions options)
     {
       writer.WriteStartArray();
-      writer.WriteStringValue(note.Item1);
-      writer.WriteNumberValue(note.Item2);
-      writer.WriteEndArray();
-    }
-  }
-
-
-  // CfgConverter: Know how to convert the Cfg object into json.
-
-  public class CfgConverter : JsonConverter<(string,string)>
-  {
-    public override (string,string)
-    Read(ref Utf8JsonReader reader,
-         Type typeToConvert,
-         JsonSerializerOptions options)
-    {
-      // stub
-      return (null, null);
-    }
-
-    public override void
-    Write(Utf8JsonWriter writer,
-          (string,string) config,
-          JsonSerializerOptions options)
-    {
-      writer.WriteStartArray();
-      writer.WriteStringValue(config.Item1);
-      writer.WriteStringValue(config.Item2);
+      writer.WriteNumberValue(swap.X);
+      writer.WriteNumberValue(swap.Y);
+      writer.WriteNumberValue(swap.XMore);
+      writer.WriteNumberValue(swap.YMore);
       writer.WriteEndArray();
     }
   }

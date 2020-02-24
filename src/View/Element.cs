@@ -24,12 +24,8 @@ namespace Chesh.View
     Erase()
     {
       int width = this.Width;
-      if ((new List<string>() {
-            "BlackResponseElement",
-            "WhiteResponseElement",
-            "BlackPromptElement",
-            "WhitePromptElement"
-          }).Contains(this.GetType().Name))
+      if ((new List<string>() { "ResponseElement" })
+          .Contains(this.GetType().Name))
       {
         width = Ui.HostWidth;
       }
@@ -44,7 +40,7 @@ namespace Chesh.View
 
     // Draw: Display the element.
 
-    public abstract void Draw(string data);
+    public abstract void Draw(Ui ui, string data);
 
 
     // SetCfg: Set the cfg of the element.
@@ -99,7 +95,7 @@ namespace Chesh.View
     public override void
     SetCfg(string cfg)
     {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
+      this.Style = Helper.JsonToValue(cfg, "style");
       this.Width = Ui.Width;
       this.Height = Ui.Height;
       this.InnerWidth = this.Width - 2;
@@ -107,7 +103,7 @@ namespace Chesh.View
     }
 
     public override void
-    Draw(string cfg)
+    Draw(Ui ui, string unused)
     {
       Ui.Pin(this.X + 1, this.Y + 1);
       Ui.Write("." + new string('-', this.InnerWidth) + ".");
@@ -122,7 +118,7 @@ namespace Chesh.View
       foreach (var opt in this.Options)
       {
         Ui.Pin(this.X + 4, this.Y + opt.Item2);
-        this.Entry(opt.Item1, cfg);
+        this.Entry(opt.Item1, ui.Cfg);
       }
 
       Ui.Pin(this.X + 3, this.Y + this.Selected.Item2);
@@ -151,7 +147,7 @@ namespace Chesh.View
       else if (opt == Option.Style)
       {
         text = "style";
-        more = "[" + Helper.JsonToCfgValue(cfg, "style") + "]";
+        more = "[" + Helper.JsonToValue(cfg, "style") + "]";
       }
       else
       {
@@ -208,255 +204,147 @@ namespace Chesh.View
   }
 
 
-  // ResponseElement: Displays additional messages to players.
+  // HistoryElement: Displays the log of moves.
 
-  public abstract class ResponseElement : Element
+  public abstract class HistoryElement : Element
   {
-    public ResponseElement(string style)
+    public HistoryElement(string style)
     {
       this.Style = style;
-      this.Height = 1;
+      switch (style)
+      {
+        case "compact":
+          this.X = 0;
+          this.Y = 2;
+          this.Width = 13;
+          this.Height = 16;
+          break;
+        case "wide":
+          this.X = 51;
+          this.Y = 1;
+          this.Width = 12;
+          this.Height = 39;
+          break;
+      }
     }
 
-    public override abstract void SetCfg(string cfg);
-
     public override void
-    Draw(string message)
+    Draw(Ui ui, string unused)
     {
-      if (message == null)
+      var history = Helper.JsonToStateList(ui.State, "History");
+      if (history == null)
       {
         return;
       }
-      Ui.Pin(this.X, this.Y);
-      Ui.Write(message);
+      var rev = new Stack<(string,int)>();
+      var stack = new Stack<(string,int)>();
+      int count = 1;
+      foreach (JsonElement note in history)
+      {
+        // TODO: use time data
+        rev.Push((note[0].GetString(), count++));
+      }
+      this.Erase();
+      Ui.Pin(this.X + 3, this.Y);
+      Ui.Write(this.GetType().Name.First().ToString() + " moves");
+      count = 0;
+      while (rev.Count != 0 && count < this.Height - 1)
+      {
+        count++;
+        stack.Push(rev.Pop());
+      }
+      count = 0;
+      foreach (var note in stack)
+      {
+        if (this.Style == "compact")
+        {
+          if (count % 2 == 0)
+          {
+            Ui.Pin(this.X, this.Y + 1 + (int) count / 2);
+          }
+          else
+          {
+            Ui.Pin(this.X + 7, this.Y + 1 + (int) count / 2);
+          }
+          Ui.Write(note.Item1);
+          count++;
+          continue;
+        }
+        if (this.Style == "wide")
+        {
+          if (this.GetType().Name == "BlackHistoryElement" && count % 2 == 0)
+          {
+            count++;
+            continue;
+          }
+          if (this.GetType().Name == "WhiteHistoryElement" && count % 2 != 0)
+          {
+            count++;
+            continue;
+          }
+          int num = (int) Math.Ceiling((double) note.Item2 / 2);
+          Ui.Pin(this.X, this.Y + 1 + (int) count / 2);
+          Ui.Write($"{new string(' ', 3 - num.ToString().Length)}{num}. {note.Item1}");
+          count++;
+        }
+      }
     }
   }
 
-
-  public class MenuResponseElement : ResponseElement
+  public class WhiteHistoryElement : HistoryElement
   {
-    public MenuResponseElement(string style) : base(style)
+    public WhiteHistoryElement(string style) : base(style)
     {
-      this.Y = 18;
-      switch (style)
-      {
-        case "compact":
-          this.X = 1;
-          break;
-        case "wide":
-          this.X = 2;
-          break;
-      }
+      this.Style = style;
+      this.X = 0;
     }
 
     public override void
     SetCfg(string cfg)
     {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
+      this.Style = Helper.JsonToValue(cfg, "style");
       switch (this.Style)
       {
         case "compact":
-          this.X = 1;
-          break;
-        case "wide":
-          this.X = 2;
-          break;
-      }
-    }
-  }
-
-  public class BlackResponseElement : ResponseElement
-  {
-    public BlackResponseElement(string style) : base(style)
-    {
-      this.Style = style;
-      switch (style)
-      {
-        case "compact":
-          this.X = 0;
-          this.Y = 0;
-          this.Width = 26;
-          break;
-        case "wide":
-          this.X = 1;
-          this.Y = 1;
-          this.Width = 48;
-          break;
-      }
-    }
-
-    public override void
-    SetCfg(string cfg)
-    {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
-      switch (this.Style)
-      {
-        case "compact":
-          this.X = 0;
-          this.Y = 0;
-          this.Width = 26;
-          break;
-        case "wide":
-          this.X = 1;
-          this.Y = 1;
-          this.Width = 48;
-          break;
-      }
-    }
-  }
-
-  public class WhiteResponseElement : ResponseElement
-  {
-    public WhiteResponseElement(string style) : base(style)
-    {
-      this.Style = style;
-      switch (style)
-      {
-        case "compact":
-          this.X = 0;
-          this.Y = 19;
-          this.Width = 26;
-          break;
-        case "wide":
-          this.X = 1;
-          this.Y = 29;
-          this.Width = 48;
-          break;
-      }
-    }
-
-    public override void
-    SetCfg(string cfg)
-    {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
-      switch (this.Style)
-      {
-        case "compact":
-          this.X = 0;
-          this.Y = 19;
-          this.Width = 26;
-          break;
-        case "wide":
-          this.X = 1;
-          this.Y = 29;
-          this.Width = 48;
-          break;
-      }
-    }
-  }
-
-
-  // PromptElement: Where players input their commands.
-  //                Also used sometimes to display responses.
-
-  public abstract class PromptElement : Element
-  {
-    public PromptElement(string cfg)
-    {
-      this.Height = 1;
-    }
-
-    public override abstract void Draw(string message);
-  }
-
-  public class BlackPromptElement : PromptElement
-  {
-    public BlackPromptElement(string style) : base(style)
-    {
-      this.Style = style;
-      switch (style)
-      {
-        case "compact":
-          this.X = 0;
-          this.Y = 1;
-          this.Width = 26;
-          break;
-        case "wide":
-          this.X = 1;
           this.Y = 2;
-          this.Width = 58;
-          break;
-      }
-    }
-
-    public override void
-    SetCfg(string cfg)
-    {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
-      switch (this.Style)
-      {
-        case "compact":
-          this.X = 0;
-          this.Y = 1;
-          this.Width = 26;
+          this.Width = 13;
+          this.Height = 16;
           break;
         case "wide":
-          this.X = 1;
-          this.Y = 2;
-          this.Width = 58;
+          this.Y = 1;
+          this.Width = 12;
+          this.Height = 39;
           break;
-      }
-    }
-
-    public override void
-    Draw(string message)
-    {
-      Ui.Pin(this.X, this.Y);
-      Ui.Write("b> ");
-      if (message != null)
-      {
-        Ui.Write(message);
       }
     }
   }
 
-  public class WhitePromptElement : PromptElement
+  public class BlackHistoryElement : HistoryElement
   {
-    public WhitePromptElement(string style) : base(style)
+    public BlackHistoryElement(string style) : base(style)
     {
       this.Style = style;
-      switch (style)
-      {
-        case "compact":
-          this.X = 0;
-          this.Y = 18;
-          this.Width = 26;
-          break;
-        case "wide":
-          this.X = 1;
-          this.Y = 28;
-          this.Width = 58;
-          break;
-      }
+      this.X = 51;
     }
 
     public override void
     SetCfg(string cfg)
     {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
+      this.Style = Helper.JsonToValue(cfg, "style");
       switch (this.Style)
       {
         case "compact":
-          this.X = 0;
-          this.Y = 18;
-          this.Width = 26;
+          this.X = 9;
+          this.Y = 2;
+          this.Width = 13;
+          this.Height = 16;
           break;
         case "wide":
-          this.X = 1;
-          this.Y = 28;
-          this.Width = 58;
+          this.X = 51;
+          this.Y = 1;
+          this.Width = 12;
+          this.Height = 39;
           break;
-      }
-    }
-
-    public override void
-    Draw(string message)
-    {
-      Ui.Pin(this.X, this.Y);
-      Ui.Write("w> ");
-      if (message != null)
-      {
-        Ui.Write(message);
       }
     }
   }
@@ -471,7 +359,7 @@ namespace Chesh.View
       this.Style = style;
     }
 
-    public override abstract void Draw(string state);
+    public override abstract void Draw(Ui ui, string unused);
   }
 
   public class WhiteDeadElement : DeadElement
@@ -487,8 +375,8 @@ namespace Chesh.View
           this.Height = 2;
           break;
         case "wide":
-          this.X = 21;
-          this.Y = 4;
+          this.X = 13;
+          this.Y = 1;
           this.Width = 35;
           this.Height = 1;
           break;
@@ -498,7 +386,7 @@ namespace Chesh.View
     public override void
     SetCfg(string cfg)
     {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
+      this.Style = Helper.JsonToValue(cfg, "style");
       switch (this.Style)
       {
         case "compact":
@@ -508,8 +396,8 @@ namespace Chesh.View
           this.Height = 2;
           break;
         case "wide":
-          this.X = 21;
-          this.Y = 4;
+          this.X = 13;
+          this.Y = 1;
           this.Width = 35;
           this.Height = 1;
           break;
@@ -517,7 +405,7 @@ namespace Chesh.View
     }
 
     public override void
-    Draw(string state)
+    Draw(Ui ui, string unused)
     {
       Ui.Pin(this.X, this.Y);
       Ui.Write("x");
@@ -525,8 +413,7 @@ namespace Chesh.View
       Ui.Write("x");
       Ui.Pin(this.X + 2, this.Y);
       int count = 0;
-      foreach (JsonElement piece in
-               Helper.JsonToStateListValue(state, "Dead"))
+      foreach (JsonElement piece in Helper.JsonToStateList(ui.State, "Dead"))
       {
         if (! piece[1].GetBoolean()) // white
         {
@@ -561,8 +448,8 @@ namespace Chesh.View
           this.Height = 2;
           break;
         case "wide":
-          this.X = 21;
-          this.Y = 26;
+          this.X = 13;
+          this.Y = 23;
           this.Width = 35;
           this.Height = 1;
           break;
@@ -572,7 +459,7 @@ namespace Chesh.View
     public override void
     SetCfg(string cfg)
     {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
+      this.Style = Helper.JsonToValue(cfg, "style");
       switch (this.Style)
       {
         case "compact":
@@ -582,8 +469,8 @@ namespace Chesh.View
           this.Height = 2;
           break;
         case "wide":
-          this.X = 21;
-          this.Y = 26;
+          this.X = 13;
+          this.Y = 23;
           this.Width = 35;
           this.Height = 1;
           break;
@@ -591,7 +478,7 @@ namespace Chesh.View
     }
 
     public override void
-    Draw(string state)
+    Draw(Ui ui, string unused)
     {
       Ui.Pin(this.X, this.Y);
       Ui.Write("x");
@@ -599,8 +486,7 @@ namespace Chesh.View
       Ui.Write("x");
       Ui.Pin(this.X + 2, this.Y);
       int count = 0;
-      foreach (JsonElement piece in
-               Helper.JsonToStateListValue(state, "Dead"))
+      foreach (JsonElement piece in Helper.JsonToStateList(ui.State, "Dead"))
       {
         if (piece[1].GetBoolean()) // black
         {
@@ -639,9 +525,9 @@ namespace Chesh.View
           this.Height = 12;
           break;
         case "wide":
-          this.X = 21;
-          this.Y = 6;
-          this.Width = 37;
+          this.X = 13;
+          this.Y = 3;
+          this.Width = 36;
           this.Height = 19;
           break;
       }
@@ -650,7 +536,7 @@ namespace Chesh.View
     public override void
     SetCfg(string cfg)
     {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
+      this.Style = Helper.JsonToValue(cfg, "style");
       switch (this.Style)
       {
         case "compact":
@@ -660,16 +546,16 @@ namespace Chesh.View
           this.Height = 12;
           break;
         case "wide":
-          this.X = 21;
-          this.Y = 6;
-          this.Width = 37;
+          this.X = 13;
+          this.Y = 3;
+          this.Width = 36;
           this.Height = 19;
           break;
       }
     }
 
     public override void
-    Draw(string state)
+    Draw(Ui unusedUi, string unusedString)
     {
       if (this.Style == "compact")
       {
@@ -754,102 +640,6 @@ namespace Chesh.View
   }
 
 
-  // HistoryElement: Displays the log of moves.
-
-  public class HistoryElement : Element
-  {
-    public HistoryElement(string style)
-    {
-      this.Style = style;
-      this.X = 0;
-      switch (style)
-      {
-        case "compact":
-          this.Y = 2;
-          this.Width = 13;
-          this.Height = 16;
-          break;
-        case "wide":
-          this.Y = 4;
-          this.Width = 20;
-          this.Height = 23;
-          break;
-      }
-    }
-
-    public override void
-    SetCfg(string cfg)
-    {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
-      switch (this.Style)
-      {
-        case "compact":
-          this.Y = 2;
-          this.Width = 13;
-          this.Height = 16;
-          break;
-        case "wide":
-          this.Y = 4;
-          this.Width = 20;
-          this.Height = 39;
-          break;
-      }
-    }
-
-    public override void
-    Draw(string state)
-    {
-      var history = Helper.JsonToStateListValue(state, "History");
-      if (history == null)
-      {
-        return;
-      }
-      var rev = new Stack<(string,int)>();
-      var stack = new Stack<(string,int)>();
-      int num = this.Height * 2 - history.Count() % 2;
-      int count = 1;
-      foreach (JsonElement note in history)
-      {
-        // TODO: use time data
-        rev.Push((note[0].GetString(), count++));
-      }
-      this.Erase();
-      count = 0;
-      while (rev.Count != 0 && count < num)
-      {
-        count++;
-        stack.Push(rev.Pop());
-      }
-      count = 0;
-      foreach (var note in stack)
-      {
-        if (count % 2 == 0)
-        {
-          Ui.Pin(this.X, this.Y + (int) count / 2);
-          if (this.Style == "wide")
-          {
-            num = (int) Math.Ceiling((double) note.Item2 / 2);
-            Ui.Write($"{new string(' ', 3 - num.ToString().Length)}{num}. ");
-          }
-        }
-        else
-        {
-          if (this.Style == "compact")
-          {
-            Ui.Pin(this.X + 7, this.Y + (int) count / 2);
-          }
-          else
-          {
-            Ui.Pin(this.X + 13, this.Y + (int) count / 2);
-          }
-        }
-        Ui.Write(note.Item1);
-        count++;
-      }
-    }
-  }
-
-
   // PiecesElement: Displays the chess pieces, superposed onto the board.
 
   public class PiecesElement : Element
@@ -866,8 +656,8 @@ namespace Chesh.View
           this.Height = 8;
           break;
         case "wide":
-          this.X = 25;
-          this.Y = 8;
+          this.X = 17;
+          this.Y = 4;
           this.Width = 29;
           this.Height = 15;
           break;
@@ -877,7 +667,7 @@ namespace Chesh.View
     public override void
     SetCfg(string cfg)
     {
-      this.Style = Helper.JsonToCfgValue(cfg, "style");
+      this.Style = Helper.JsonToValue(cfg, "style");
       switch (this.Style)
       {
         case "compact":
@@ -887,8 +677,8 @@ namespace Chesh.View
           this.Height = 8;
           break;
         case "wide":
-          this.X = 25;
-          this.Y = 8;
+          this.X = 17;
+          this.Y = 4;
           this.Width = 29;
           this.Height = 15;
           break;
@@ -896,18 +686,17 @@ namespace Chesh.View
     }
 
     public override void
-    Draw(string state)
+    Draw(Ui ui, string unused)
     {
       Ui.Pin(this.X, this.Y);
-      foreach (JsonElement piece in
-               Helper.JsonToStateListValue(state, "Live"))
+      foreach (JsonElement piece in Helper.JsonToStateList(ui.State, "Live"))
       {
         var sym = piece[0].GetString();
         var black = piece[1].GetBoolean();
         var x = piece[2].GetInt32();
         var y = piece[3].GetInt32();
         string name = sym;
-        if (black && sym == "p")
+        if (sym == "p")
         {
           // pawn case disambiguation
           name = "o";
@@ -919,10 +708,194 @@ namespace Chesh.View
         }
         else if (this.Style == "wide")
         {
-          Ui.Pin(this.X + 4 * x - 4, this.Y + 16 - 2 * y);
+          Ui.Pin(this.X + 4 * x - 4, this.Y + 17 - 2 * y);
           Ui.Write(name);
         }
       }
+    }
+  }
+
+
+  // ReachElement: Displays the reach of the selected piece, superposed onto the
+  //               board and over the pieces.
+
+  public class ReachElement : Element
+  {
+    public ReachElement(string style)
+    {
+      this.Style = style;
+      switch (style)
+      {
+        case "compact":
+          this.X = 16;
+          this.Y = 6;
+          this.Width = 8;
+          this.Height = 8;
+          break;
+        case "wide":
+          this.X = 17;
+          this.Y = 4;
+          this.Width = 29;
+          this.Height = 15;
+          break;
+      }
+    }
+
+    public override void
+    SetCfg(string cfg)
+    {
+      this.Style = Helper.JsonToValue(cfg, "style");
+      switch (this.Style)
+      {
+        case "compact":
+          this.X = 16;
+          this.Y = 6;
+          this.Width = 8;
+          this.Height = 8;
+          break;
+        case "wide":
+          this.X = 17;
+          this.Y = 4;
+          this.Width = 29;
+          this.Height = 15;
+          break;
+      }
+    }
+
+    public override void
+    Draw(Ui ui, string unused)
+    {
+      Ui.Pin(this.X, this.Y);
+      string name;
+      foreach (JsonElement swap in Helper.JsonToStateList(ui.State, "Reach"))
+      {
+        var x = swap[0].GetInt32();
+        var y = swap[1].GetInt32();
+        var xSwap = swap[2].GetInt32();
+        var ySwap = swap[3].GetInt32();
+        var sym = ui.At(xSwap, ySwap);
+        if (sym == "p")
+        {
+          // pawn case disambiguation
+          sym = "o";
+        }
+
+        // empty
+        name = " . ";
+        // capture
+        if (xSwap > 0 && ySwap > 0)
+        {
+          name = "(" + sym + ")";
+        }
+
+        if (ui.UiState.Chosen)
+        {
+          // empty
+          name = " * ";
+          // capture
+          if (xSwap > 0 && ySwap > 0)
+          {
+            name = "{" + sym + "}";
+          }
+        }
+
+        var piece = Helper.JsonToSelection(ui.State);
+
+        // castle
+        if (! Helper.JsonIsNull(ui.State, "Selection") &&
+            piece[0].GetString().ToUpper() == "K" && xSwap > 0 && x != xSwap)
+        {
+          name = " % ";
+        }
+
+        // en passant
+        string more = null;
+        if (! Helper.JsonIsNull(ui.State, "Selection") &&
+            piece[0].GetString().ToUpper() == "P" && ySwap > 0 && y != ySwap)
+        {
+          Ui.Pin(0,28);
+          Ui.Write($"{piece[0].GetString()} {piece[2].GetInt32()} {piece[3].GetInt32()}");
+          name = " . ";
+          if (ui.UiState.Chosen)
+          {
+            name = " * ";
+            more = "(" + sym + ")";
+          }
+        }
+
+        if (this.Style == "compact" && xSwap == 0 && ySwap == 0)
+        {
+          Ui.Pin(this.X + x - 2, this.Y + 8 - y);
+          Ui.Write(name);
+        }
+        else if (this.Style == "wide")
+        {
+          Ui.Pin(this.X + 4 * x - 5, this.Y + 17 - 2 * y);
+          Ui.Write(name);
+          if (more != null)
+          {
+            Ui.Pin(this.X + 4 * x - 5, this.Y + 19 - 2 * y);
+            if (char.IsLower(piece[0].GetString()[0]))
+            {
+              Ui.Pin(this.X + 4 * x - 5, this.Y + 15 - 2 * y);
+            }
+            Ui.Write(more);
+          }
+        }
+      }
+    }
+  }
+
+
+  // ResponseElement: Displays additional messages to players.
+
+  public class ResponseElement : Element
+  {
+    public ResponseElement(string style)
+    {
+      this.Style = style;
+      this.X = 0;
+      this.Height = 1;
+      switch (style)
+      {
+        case "compact":
+          this.Y = 19;
+          this.Width = 26;
+          break;
+        case "wide":
+          this.Y = 25;
+          this.Width = 48;
+          break;
+      }
+    }
+
+    public override void
+    SetCfg(string cfg)
+    {
+      this.Style = Helper.JsonToValue(cfg, "style");
+      switch (this.Style)
+      {
+        case "compact":
+          this.Y = 19;
+          this.Width = 26;
+          break;
+        case "wide":
+          this.Y = 25;
+          this.Width = 48;
+          break;
+      }
+    }
+
+    public override void
+    Draw(Ui unused, string message)
+    {
+      if (message == null)
+      {
+        return;
+      }
+      Ui.Pin(this.X, this.Y);
+      Ui.Write(new string(' ', (int) ((Ui.Width - message.Length) / 2)) +
+               message);
     }
   }
 }

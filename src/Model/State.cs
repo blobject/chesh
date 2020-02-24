@@ -13,7 +13,8 @@ namespace Chesh.Model
   public class State
   {
     public char[,] Board;
-    public Piece Selection { get; set; } // TODO: unused
+    public Piece Selection { get; set; }
+    public List<Swap> Reach { get; set; }
     public List<Piece> Live { get; set; }
     public List<Piece> Dead { get; set; }
     public List<(string,long)> History { get; set; }
@@ -160,15 +161,15 @@ namespace Chesh.Model
     // LineOfAttack: Get the squares from attacker to target, including
     //               the attacker, excluding the target.
 
-    public List<(int,int,int,int)>
+    public List<Swap>
     LineOfAttack(Piece attacker, Piece target)
     {
-      List<(int,int,int,int)> ray = null;
-      var targetSwap = (target.X, target.Y, target.X, target.Y);
+      List<Swap> ray = null;
+      var targetSwap = new Swap(target.X, target.Y, target.X, target.Y);
       string last = this.LastNote();
 
       // find the right ray first
-      foreach (var threat in attacker.Rays(this.Board, last))
+      foreach (var threat in attacker.Rays(this, last))
       {
         if (threat.Contains(targetSwap))
         {
@@ -179,7 +180,7 @@ namespace Chesh.Model
 
       // remove the target from, but add the attacker to, the ray
       ray.Remove(targetSwap);
-      ray.Add((attacker.X, attacker.Y, attacker.X, attacker.Y));
+      ray.Add(new Swap(attacker.X, attacker.Y, attacker.X, attacker.Y));
       return ray;
     }
 
@@ -231,23 +232,20 @@ namespace Chesh.Model
 
     // player actions //////////////////////////////////////////////////////////
 
-    // TODO: unused by current View
     // Select: Set State.Selection.
 
-    public Ret
+    public void
     Select(int x, int y)
     {
       Piece piece = this.At(this.Live, x, y);
-      if (piece == null)
+      if (piece == null || piece.Color != this.Turn(true))
       {
-        return Ret.BadSrc;
-      }
-      if (piece.Color != this.Turn(true))
-      {
-        return Ret.BadTurn;
+        this.Selection = null;
+        this.Reach = new List<Swap>();
+        return;
       }
       this.Selection = piece;
-      return Ret.Selected;
+      this.Reach = piece.Reach(this, this.LastNote());
     }
 
 
@@ -288,9 +286,9 @@ namespace Chesh.Model
         {
           continue;
         }
-        foreach (var swap in enemy.Reach(this.Board, last))
+        foreach (var swap in enemy.Reach(this, last))
         {
-          if (swap.Item1 == king.X && swap.Item2 == king.Y)
+          if (swap.X == king.X && swap.Y == king.Y)
           {
             check = true;
             break;
@@ -320,9 +318,9 @@ namespace Chesh.Model
 
       // will the move threaten the enemy king?
       Piece enemyKing = this.King(turn, false);
-      foreach (var swap in mover.Reach(this.Board, this.LastNote()))
+      foreach (var swap in mover.Reach(this, this.LastNote()))
       {
-        if (swap.Item1 == enemyKing.X && swap.Item2 == enemyKing.Y)
+        if (swap.X == enemyKing.X && swap.Y == enemyKing.Y)
         {
           check = true;
         }
@@ -346,10 +344,9 @@ namespace Chesh.Model
 
       // can the enemy king move somewhere safe?
       Piece enemyKing = this.King(turn, false);
-      foreach (var swap in enemyKing.Reach(this.Board, null))
+      foreach (var swap in enemyKing.Reach(this, null))
       {
-        if (! this.WillBeChecked(this.Other(turn), enemyKing,
-                                 swap.Item1, swap.Item2))
+        if (! this.WillBeChecked(this.Other(turn), enemyKing, swap.X, swap.Y))
         {
           checkmate = false;
           break;
@@ -357,7 +354,7 @@ namespace Chesh.Model
       }
 
       // get line of attack - we do this here, before backtracking
-      List<(int,int,int,int)> threat = null;
+      List<Swap> threat = null;
       if (checkmate)
       {
         threat = this.LineOfAttack(mover, enemyKing);
@@ -389,11 +386,11 @@ namespace Chesh.Model
           {
             continue;
           }
-          foreach (var reach in friendly.Reach(this.Board, last))
+          foreach (var place in friendly.Reach(this, last))
           {
-            if (reach == swap &&
+            if (place.Equals(swap) &&
                 ! this.WillBeChecked(this.Other(turn), friendly,
-                                     reach.Item1, reach.Item2))
+                                     place.X, place.Y))
             {
               checkmate = false;
               break;
@@ -623,9 +620,7 @@ namespace Chesh.Model
 
       // try making the move
       // note: this is the first creation of <Ret>s
-      int xMore;
-      int yMore;
-      var rets = src.Move(this, xDst, yDst, out xMore, out yMore);
+      var rets = src.Move(this, xDst, yDst);
 
       // bad moves that are a bit more involved
       // note: original <Ret>s can be ignored
@@ -654,6 +649,18 @@ namespace Chesh.Model
         {
           rets.Remove(Ret.Check);
           rets.Add(Ret.Checkmate);
+        }
+      }
+
+      // "more" coordinates
+      int xMore = 0;
+      int yMore = 0;
+      foreach (var swap in this.Reach)
+      {
+        if (xDst == swap.X && yDst == swap.Y)
+        {
+          xMore = swap.XMore;
+          yMore = swap.YMore;
         }
       }
 
