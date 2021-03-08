@@ -1,8 +1,5 @@
-/*.log
-bin/
+.hg/
+.hgignore
 obj/
 *.dll
 *.exe
-!/bin/
-!/bin/*.dll
-!/bin/*.exe
